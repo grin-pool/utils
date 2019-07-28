@@ -35,7 +35,7 @@ class Pool_Payout:
             self.walletflags = None
         elif script.startswith("BGP"):
             self.poolname = "BitGrinPool"
-            self.mwURL = "https://api.pool.bitgrin.io"
+            self.mwURL = "https://api.pool.bitgrin.dev"
             self.walletflags = None
         elif script.startswith("MWFP"):
             self.poolname = "MWFlooPool"
