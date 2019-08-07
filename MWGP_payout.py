@@ -338,14 +338,14 @@ class Pool_Payout:
     
         # Check for existing signed slate and ask if we should process it
         if os.path.exists(self.signed_slatefile):
-            print("xxx: loading {}".format(self.signed_slatefile))
+            #print("xxx: loading {}".format(self.signed_slatefile))
             try:
                 with open(self.signed_slatefile, 'r') as tx_slate_response:
                     content = tx_slate_response.read().rstrip()
                     json.loads(content)
                 self.signed_slate = content
             except:
-                print("xxx: Failed to load valid json: {}".format(content))
+                #print("xxx: Failed to load valid json: {}".format(content))
                 pass
         if self.signed_slate is not None:
             options = {
