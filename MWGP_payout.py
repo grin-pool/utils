@@ -16,6 +16,7 @@
 import os
 import sys
 import json
+import socket
 import getpass
 import requests
 import datetime
@@ -25,21 +26,23 @@ import subprocess
 class Pool_Payout:
     def __init__(self):
         self.POOL_MINIMUM_PAYOUT = 0.1
-        self.payout_methods = ["Wallet", "Slate Files"]
         self.payout_method = None
         # Calculate the pool name and API url
         script = os.path.basename(__file__)
         if script.startswith("MWGP"):
+            self.payout_methods = ["Grin Wallet", "Grin++ Wallet", "Slate Files"]
             self.poolname = "MWGrinPool"
             self.walletprefix = "grin"
             self.mwURL = "https://api.mwgrinpool.com"
             self.walletflags = None
         elif script.startswith("BGP"):
+            self.payout_methods = ["BitGrin Wallet", "Slate Files"]
             self.poolname = "BitGrinPool"
             self.walletprefix = "bitgrin"
             self.mwURL = "https://api.pool.bitgrin.dev"
             self.walletflags = None
         elif script.startswith("MWFP"):
+            self.payout_methods = ["Grin Wallet", "Slate Files"]
             self.poolname = "MWFlooPool"
             self.walletprefix = "grin"
             self.mwURL = "https://api.mwfloopool.com"
@@ -56,6 +59,8 @@ class Pool_Payout:
         self.balance = 0.0
         self.unsigned_slate = None
         self.signed_slate = None
+        self.wallet_user = None
+        self.wallet_session_token = None
 
        
     # Print Indented
@@ -227,6 +232,17 @@ class Pool_Payout:
         except Exception as e:
             return "Error saving payment slate to file: {}".format(str(e))
         
+    # Write signed json slate to a file
+    def write_signed_slate_file(self):
+        try:
+            f = open(self.signed_slatefile, "w")
+            f.write(self.signed_slate) 
+            f.flush()
+            f.close()
+            return None
+        except Exception as e:
+            return "Error saving signed payment slate to file: {}".format(str(e))
+        
     def sign_slate_with_wallet_cli(self):
         ##
         # Call the wallet CLI to receive and sign the slate
@@ -243,7 +259,58 @@ class Pool_Payout:
             return "Signing slate failed with output: {}".format(exc.output.decode("utf-8"))
         except Exception as e:
             return "Wallet receive failed with error: {}".format(str(e))
-        
+
+    def test_grinplusplus_wallet(self):
+        ##
+        # Test that the grin++ wallet API is available
+        s = socket.socket()
+        s.settimeout(2)
+        try:
+            s.connect(("localhost", 3420))
+            s.close()
+        except Exception as e:
+            return "Could not connect to Grin++ wallet port.  Is the wallet running?"
+
+    def login_grinplusplus_wallet(self):
+        ##
+        # Log into Grin++ wallet and get a session token
+        login_url = "http://localhost:3420/v1/wallet/owner/login"
+        r = requests.post(
+                url = login_url,
+                headers = {
+                        "username": self.wallet_user,
+                        "password": self.wallet_pass,
+                    }
+            )
+        if r.status_code != 200:
+            return "Failed to log into wallet - {}".format(r.text)
+        self.wallet_session_token = r.json()["session_token"]
+
+    def logout_grinplusplus_wallet(self):
+        ##
+        # Log out of Grin++ wallet
+        login_url = "http://localhost:3420/v1/wallet/owner/logout"
+        r = requests.post(
+                url = login_url,
+                headers = { "session_token": self.wallet_session_token },
+            )
+        if r.status_code != 200:
+            return "Failed to log out of wallet - {}".format(r.text)
+        self.wallet_session_token = None
+
+    def sign_slate_with_grinplusplus_wallet_api(self):
+        ##
+        # Call Grin++ wallet API to sign the slate file
+        sign_slate_url = "http://localhost:3420/v1/wallet/owner/receive_tx"
+        r = requests.post(
+                url = sign_slate_url,
+                headers = { "session_token": self.wallet_session_token },
+                data = '{ "slate": ' + self.unsigned_slate + '}'
+            )
+        if r.status_code != 200:
+            return "Failed to receive slate - {}".format(r.text)
+        self.signed_slate = r.text
+
     def return_payment_slate(self):
         ##
         # Submit the signed slate back to the pool to be finalized and posted to the network
@@ -255,7 +322,6 @@ class Pool_Payout:
         )
         if r.status_code != 200:
             return "Failed to submit signed slate - {}".format(r.text)
-
 
     ##
     # Get Payout using local grin wallet
@@ -324,6 +390,97 @@ class Pool_Payout:
 
         # Cleanup
         self.clean_slate_files()
+
+
+
+    ##
+    # Get Payout using grin++ wallet
+    def run_grinplusplus_wallet(self):
+        if self.args.wallet_user is None:
+            self.wallet_user = input("   Wallet Username: ")
+            self.prompted = True
+        else:
+            self.wallet_user = self.args.wallet_user
+
+        if self.args.wallet_pass is None:
+            self.wallet_pass = getpass.getpass("   Wallet Password: ")
+            self.prompted = True
+        else:
+            self.wallet_pass = self.args.wallet_pass
+    
+        # Cleanup
+        self.clean_slate_files()
+    
+        # Test Wallet API
+        self.print_progress("Testing your Grin++ wallet API");
+        message = self.test_grinplusplus_wallet()
+        if message is not None:
+            self.error_exit(message)
+        self.print_success()
+
+        # Log into Wallet Account
+        self.print_progress("Logging in to your Grin++ wallet");
+        message = self.login_grinplusplus_wallet()
+        if message is not None:
+            self.error_exit(message)
+        self.print_success()
+
+	# Find User ID 
+        self.print_progress("Getting your pool User ID");
+        message = self.get_user_id()
+        if self.user_id is None:
+            self.error_exit(message)
+        self.print_success()
+
+#        # Check for existing slates and ask if we should process it
+#        if os.path.exists(self.signed_slatefile):
+#            xxx
+    
+        # Find balance
+        self.print_progress("Getting your Avaiable Balance");
+        message = self.get_balance()
+        if self.balance == None:
+            self.error_exit(message)
+        self.print_success(self.balance)
+        # Only continue if there are funds available
+        if self.balance < self.POOL_MINIMUM_PAYOUT:
+            self.error_exit("Insufficient Available Balance for payout: Minimum: {}, Available: {}".format(self.POOL_MINIMUM_PAYOUT, self.balance))
+
+        # Get payment slate from Pool
+        self.print_progress("Requesting a Payment from the pool");
+        message = self.get_unsigned_slate()
+        if self.unsigned_slate is None:
+            self.error_exit(message)
+        # Write the slate to file
+        message = self.write_unsigned_slate_file()
+        if not os.path.isfile(self.unsigned_slatefile):
+            self.error_exit(message)
+        self.print_success()
+
+        # Call Grin++ wallet to receive the slate and sign it
+        self.print_progress("Processing the payment with your wallet")
+        message = self.sign_slate_with_grinplusplus_wallet_api()
+        if message is not None:
+            self.error_exit(message)
+        self.print_success()
+
+        # Return the signed slate to the pool
+        self.print_progress("Returning the signed payment slate to the pool");
+        message = self.return_payment_slate()
+        if message is not None:
+            self.error_exit(message)
+        self.print_success()
+
+        # Cleanup
+        self.clean_slate_files()
+
+        # Log out of wallet
+        self.print_progress("Logging out of your Grin++ wallet");
+        message = self.logout_grinplusplus_wallet()
+        if message is not None:
+            self.error_exit(message)
+        self.print_success()
+
 
 
     ##
@@ -470,6 +627,7 @@ class Pool_Payout:
         parser.add_argument("--payout_method", help="Which payout method to use: {}".format(self.payout_methods))
         parser.add_argument("--pool_user", help="Username on {}".format(self.poolname))
         parser.add_argument("--pool_pass", help="Password on {}".format(self.poolname))
+        parser.add_argument("--wallet_user", help="Your grin++ wallet username")
         parser.add_argument("--wallet_pass", help="Your grin wallet password")
         self.args = parser.parse_args()
     
@@ -514,8 +672,10 @@ class Pool_Payout:
 
         ##
         # Execute the requested payment method
-        if self.payout_method == "Wallet":
+        if self.payout_method == "Grin Wallet" or self.payout_method == "BitGrin Wallet":
             self.run_grin_wallet()
+        elif self.payout_method == "Grin++ Wallet":
+            self.run_grinplusplus_wallet()
         elif self.payout_method == "Slate Files":
             self.run_slate()
         else:
