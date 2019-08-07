@@ -437,7 +437,7 @@ class Pool_Payout:
             if os.path.exists(choice):
                 try:
                     with open(choice, 'r') as tx_slate_response:
-                        self.signed_slate = tx_slate_response.read()
+                        content = tx_slate_response.read()
                     json.loads(content)
                     self.signed_slate = content
                 except:
