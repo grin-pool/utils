@@ -45,7 +45,7 @@ mwURL = "https://api.mwgrinpool.com"
 NanoGrin = 1.0/1000000000.0
 SecondsInDay = float(60*60*24)
 PPLNGSeconds = float(60*60*4)
-PoolFee = 0.0 #0.02
+PoolFee = 0.02
 
 def print_header():
     print(" ")
