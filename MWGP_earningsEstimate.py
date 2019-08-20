@@ -45,6 +45,7 @@ mwURL = "https://api.mwgrinpool.com"
 NanoGrin = 1.0/1000000000.0
 SecondsInDay = float(60*60*24)
 PPLNGSeconds = float(60*60*4)
+PoolFee = 0.0 #0.02
 
 def print_header():
     print(" ")
@@ -74,7 +75,8 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--days", help="Number of days to average over")
 parser.add_argument("--c29gps", help="Miners C29 Graphs/second")
 parser.add_argument("--c31gps", help="Miners C31 Graphs/second")
-parser.add_argument("--debug", help="Print lots of debug info")
+parser.add_argument("--debug", help="Print lots of debug info", action='store_true')
+parser.add_argument("--no-graph", help="Dont generate graph", action='store_false', dest='Graph')
 args = parser.parse_args()
 
 
@@ -103,6 +105,15 @@ else:
 
 if args.debug is None:
     debug = False
+else:
+    debug = bool(args.debug)
+
+if args.Graph is None:
+    Graph = True
+else:
+    Graph = bool(args.Graph)
+
+
 
 EndTS = datetime.now()
 startTS = EndTS - timedelta(days=NumDays)
@@ -134,19 +145,20 @@ for blockHeight in poolblocks:
     poolGpsURL = mwURL + "/pool/stat/{}/gps".format(blockHeight)
     poolGpsJSON = requests.get(url = poolGpsURL).json()
     #   Calculate theoretical miners reward
-    scale = (2**(1+31-24)*31)/float(max(29, grinblockJSON['secondary_scaling']))
-    minerValue = C29Gps + C31Gps*scale
+    secondaryScale = max(29, grinblockJSON['secondary_scaling'])*2
+    primaryScale = (2**(1+31-24)*31)
+    minerValue = C29Gps*secondaryScale + C31Gps*primaryScale
     poolValue = 0
     for gps in poolGpsJSON['gps']:
         if gps['edge_bits'] == 29:
-            poolValue += gps['gps']
+            poolValue += gps['gps']*secondaryScale
         else:
-            poolValue += gps['gps']*scale
+            poolValue += gps['gps']*primaryScale
     debug and print("Miner value: {}, pool value: {}".format(minerValue, poolValue))
-    fullMinersReward = (minerValue/poolValue)*(60+grinblockJSON['fee']*NanoGrin)
+    fullMinersReward = (minerValue/poolValue)*(60+grinblockJSON['fee']*NanoGrin)*(1.0-PoolFee)
     tsNow = datetime.fromtimestamp(grinblockJSON['timestamp'])
     timedelta = tsNow - startTS
-    # Check if we get the full reward or not
+    # Check if we get the full reward or not (were we mining for the entire PPLNG)
     if(timedelta.total_seconds() < PPLNGSeconds):
         minersReward = fullMinersReward * (timedelta.total_seconds()/PPLNGSeconds)
     else:
@@ -161,6 +173,7 @@ for blockHeight in poolblocks:
     debug and print("daysSinceStartTS = {}".format(daysSinceStartTS))
     y.append(rewardTotal/daysSinceStartTS)
     debug and print(" ")
+    # Status
     debug or sys.stdout.write(".")
     sys.stdout.flush()
 
