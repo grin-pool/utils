@@ -31,19 +31,19 @@ class Pool_Payout:
         # Calculate the pool name and API url
         script = os.path.basename(__file__)
         if script.startswith("MWGP"):
-            self.payout_methods = ["Grin Wallet", "Grin++ Wallet", "Wallet713", "Slate Files"]
+            self.payout_methods = ["Grin Wallet", "Grin++ Wallet", "Wallet713", "Slate Files", "http/https"]
             self.poolname = "MWGrinPool"
             self.walletprefix = "grin"
             self.mwURL = "https://api.mwgrinpool.com"
             self.walletflags = None
         elif script.startswith("BGP"):
-            self.payout_methods = ["BitGrin Wallet", "Slate Files"]
+            self.payout_methods = ["BitGrin Wallet", "Slate Files", "http/https"]
             self.poolname = "BitGrinPool"
             self.walletprefix = "bitgrin"
             self.mwURL = "https://api.pool.bitgrin.dev"
             self.walletflags = None
         elif script.startswith("MWFP"):
-            self.payout_methods = ["Grin Wallet", "Wallet713", "Slate Files"]
+            self.payout_methods = ["Grin Wallet", "Wallet713", "Slate Files", "http/https"]
             self.poolname = "MWFlooPool"
             self.walletprefix = "grin"
             self.mwURL = "https://api.mwfloopool.com"
@@ -63,6 +63,7 @@ class Pool_Payout:
         self.signed_slate = None
         self.wallet_user = None
         self.wallet_session_token = None
+        self.wallet_url = None
 
        
     # Print Indented
@@ -431,6 +432,18 @@ class Pool_Payout:
         )
         if r.status_code != 200:
             return "Failed to submit signed slate - {}".format(r.text)
+
+    def request_http_payment(self):
+        ##
+        # Call the pool API to request a payment to http/https URL
+        request_http_payment_url = self.mwURL + "/pool/payment/http/" + self.user_id + "/" + self.wallet_url
+        r = requests.post(
+                url = request_http_payment_url,
+                auth = (self.username, self.password),
+        )
+        if r.status_code != 200:
+            return "Failed to make http payout - {}".format(r.text)
+
 
     ##
     # Get Payout using local grin wallet
@@ -803,6 +816,42 @@ class Pool_Payout:
         self.clean_slate_files()
     
 
+    ##
+    # Get Payout to http[s] wallet listener
+    def run_http(self):
+        if self.args.wallet_url is None:
+            self.wallet_url = input("   Wallet URL: ")
+            self.prompted = True
+        else:
+            self.wallet_url = self.args.wallet_url
+    
+	# Find User ID 
+        self.print_progress("Getting your pool User ID");
+        message = self.get_user_id()
+        if self.user_id is None:
+            self.error_exit(message)
+        self.print_success()
+
+        # Find balance
+        self.print_progress("Getting your Avaiable Balance");
+        message = self.get_balance()
+        if self.balance == None:
+            self.error_exit(message)
+        self.print_success(self.balance)
+        # Only continue if there are funds available
+        if self.balance < self.POOL_MINIMUM_PAYOUT:
+            self.error_exit("Insufficient Available Balance for payout: Minimum: {}, Available: {}".format(self.POOL_MINIMUM_PAYOUT, self.balance))
+
+        # Request payment from the pool
+        self.print_progress("Requesting a Payment from the pool");
+        message = self.request_http_payment()
+        if message is not None:
+            self.error_exit(message)
+        self.print_success()
+
+
+
+
 
     def run(self):
         ##
@@ -813,6 +862,7 @@ class Pool_Payout:
         parser.add_argument("--pool_pass", help="Password on {}".format(self.poolname))
         parser.add_argument("--wallet_user", help="Your grin++ wallet username")
         parser.add_argument("--wallet_pass", help="Your grin wallet password")
+        parser.add_argument("--wallet_url", help="Your grin wallet http/https url")
         self.args = parser.parse_args()
     
         self.print_banner()
@@ -864,6 +914,8 @@ class Pool_Payout:
             self.run_wallet713()
         elif self.payout_method == "Slate Files":
             self.run_slate()
+        elif self.payout_method == "http/https":
+            self.run_http()
         else:
             self.error_exit("Invalid payout method requested: {}".format(self.payout_method))
 
