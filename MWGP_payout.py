@@ -26,6 +26,7 @@ import subprocess
 
 class Pool_Payout:
     def __init__(self):
+        self.version = "2.0.1"
         self.POOL_MINIMUM_PAYOUT = 0.1
         self.payout_method = None
         # Calculate the pool name and API url
@@ -78,7 +79,7 @@ class Pool_Payout:
     # Print tool head banner
     def print_banner(self):
         print(" ")
-        print("#############  {} Payout Request Script  #############".format(self.poolname))
+        print("#############  {} Payout Request Script: Version {}  #############".format(self.poolname, self.version))
         print("## Started: {} ".format(datetime.datetime.now().strftime("%Y-%m-%d %H:%M")))
         print("## ")
 
@@ -150,11 +151,11 @@ class Pool_Payout:
         cwd = os.getcwd()
         path = os.environ.get('PATH')
         path_add = [
-            path,
             cwd,
             cwd + "/{}-wallet".format(self.walletprefix),
             cwd + "/{}-wallet/target/debug".format(self.walletprefix),
             cwd + "/{}-wallet/target/release".format(self.walletprefix),
+            path,
         ]
         path = ":".join(path_add)
         for directory in path.split(":"):
